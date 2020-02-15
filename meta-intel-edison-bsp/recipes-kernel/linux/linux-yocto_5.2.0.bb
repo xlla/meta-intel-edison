@@ -16,6 +16,7 @@ SRC_URI = "git://github.com/edison-fw/linux.git;protocol=https;branch=eds-acpi-5
         file://bridge.cfg \
         file://leds.cfg \
         file://bpf.cfg \
+        file://fbtft.cfg \
         "
 
 # kernel patches

@@ -117,3 +117,6 @@ IMAGE_INSTALL_append = " powertop"
 
 # Clean corrupted journald entries
 IMAGE_INSTALL_append = " cleanjournal"
+
+# ros
+#IMAGE_INSTALL_append = " roslaunch catkin roscpp-tutorials cv-bridge"
