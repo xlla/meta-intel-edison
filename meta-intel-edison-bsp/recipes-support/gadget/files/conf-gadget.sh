@@ -4,8 +4,8 @@
 set -euf -o pipefail
 
 readonly GADGET_BASE_DIR="/sys/kernel/config/usb_gadget/g1"
-readonly DEV_ETH_ADDR="aa:bb:cc:dd:ee:f1"
-readonly HOST_ETH_ADDR="aa:bb:cc:dd:ee:f2"
+readonly DEV_ETH_ADDR="02:00:86:0a:57:7c"
+readonly HOST_ETH_ADDR="02:00:86:0a:57:7d"
 readonly USBDISK="/dev/mmcblk0p9"
 
 # Check if already run before
@@ -29,8 +29,11 @@ mkdir -p strings/0x409
 ### this creates a new /dev/USBx port
 ### on Edison put a tty on the port with:
 ### `/sbin/agetty -L 115200 ttyGS0 xterm-256color`
-mkdir functions/gser.usb0
-ln -s functions/gser.usb0 configs/c.1/
+#mkdir functions/gser.usb0
+#ln -s functions/gser.usb0 configs/c.1/
+mkdir functions/acm.usb0
+ln -s functions/acm.usb0 configs/c.1/
+
 ###
 
 # Ethernet device
@@ -53,14 +56,14 @@ ln -s functions/mass_storage.usb0 configs/c.1/
 ###
 
 # Composite Gadget Setup
-echo 0x1d6b > idVendor # Linux Foundation
-echo 0x0104 > idProduct # Multifunction Composite Gadget
-echo 0x0100 > bcdDevice # v1.0.0
+echo 0x8087 > idVendor # Linux Foundation
+echo 0x0a9e > idProduct # Multifunction Composite Gadget
+echo 0x0310 > bcdDevice # v1.0.0
 echo 0x0200 > bcdUSB # USB2
-echo "0123456789abcdef" > strings/0x409/serialnumber
-echo "USBArmory" > strings/0x409/manufacturer
-echo "USBArmory Gadget" > strings/0x409/product
-echo "Conf1" > configs/c.1/strings/0x409/configuration
+echo "8452e52a5b73f5f38c917327f40a577c" > strings/0x409/serialnumber
+echo "Intel Corporation" > strings/0x409/manufacturer
+echo "Edison" > strings/0x409/product
+echo "mass rndis acm" > configs/c.1/strings/0x409/configuration
 echo 120 > configs/c.1/MaxPower
 
 # Activate gadgets

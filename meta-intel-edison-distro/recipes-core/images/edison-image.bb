@@ -53,12 +53,10 @@ IMAGE_INSTALL_append = " pulseaudio-server libpulsecore libpulsecommon libpulse 
 #Add Gstreamer
 IMAGE_INSTALL_append = " gstreamer1.0 gstreamer1.0-meta-base gstreamer1.0-meta-audio"
 
-# SWIG
-IMAGE_INSTALL_append = " swig"
-
 
 # Edison Arduino stuff
 IMAGE_INSTALL_append = " clloader"
+IMAGE_INSTALL_append = " sketch-check"
 
 # Edison Middleware stuff
 IMAGE_INSTALL_append = " packagegroup-core-buildessential"
@@ -100,13 +98,14 @@ IMAGE_INSTALL_append = " battery-voltage"
 # Add linux performance monitoring tool
 IMAGE_INSTALL_append = " perf"
 
-IMAGE_INSTALL_append = " sketch-check"
-
 # package management - where to find this?
 #IMAGE_INSTALL_append = " aptitude"
 
 # Provides strace and gdb
 # IMAGE_FEATURES += "tools-debug" fail with thud
+
+# Add the nano text editor
+IMAGE_INSTALL_append = " nano"
 
 # SWIG
 IMAGE_INSTALL_append = " swig"
