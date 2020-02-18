@@ -13,6 +13,7 @@ TARGET_CC_ARCH += "${LDFLAGS}"
 
 SRC_URI = "git://github.com/01org/clloader.git;protocol=https;branch=edison \
             file://clloader.service \
+<<<<<<< HEAD
             file://sketch_reset.service \
 <<<<<<< HEAD
             file://0001-clloader-silence-when-ttyGS0-not-found.patch \
@@ -20,6 +21,9 @@ SRC_URI = "git://github.com/01org/clloader.git;protocol=https;branch=edison \
 =======
             file://0001-clloader-silence-when-ttyGS0-not-found.patch"
 >>>>>>> d66c23e... to support arduino sketches
+=======
+            file://sketch_reset.service"
+>>>>>>> 0025b17... Revert "clloader: silence when ttyGS0 not found"
 
 SRCREV = "ef2fe0ae9f7fba836df696441fd9053ed07b770e"
 
