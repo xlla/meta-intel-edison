@@ -76,11 +76,11 @@ IMAGE_INSTALL_append = " nodejs-dev"
 IMAGE_INSTALL_append = " nodejs-npm"
 
 # MRAA
-IMAGE_INSTALL_append = " mraa-dev"
-IMAGE_INSTALL_append = " mraa-doc"
+#IMAGE_INSTALL_append = " mraa-dev"
+#IMAGE_INSTALL_append = " mraa-doc"
 
 # UPM
-IMAGE_INSTALL_append = " upm-dev"
+#IMAGE_INSTALL_append = " upm-dev"
 
 # INTEL MCU FW
 IMAGE_INSTALL_append = " mcu-fw-load"
@@ -116,6 +116,9 @@ IMAGE_INSTALL_append = " powertop"
 
 # Clean corrupted journald entries
 IMAGE_INSTALL_append = " cleanjournal"
+
+#IoTivity
+IMAGE_INSTALL_append = " iotivity-dev"
 
 # ros
 #IMAGE_INSTALL_append = " roslaunch catkin roscpp-tutorials cv-bridge"
