@@ -118,7 +118,7 @@ IMAGE_INSTALL_append = " powertop"
 IMAGE_INSTALL_append = " cleanjournal"
 
 #IoTivity
-IMAGE_INSTALL_append = " iotivity-dev"
+#IMAGE_INSTALL_append = " iotivity-dev"
 
 # ros
 #IMAGE_INSTALL_append = " roslaunch catkin roscpp-tutorials cv-bridge"
