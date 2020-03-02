@@ -96,14 +96,14 @@ env_setup_script=$(find "$target_sdk_dir" -maxdepth 1 -name environment-setup-*)
 #done
 
 # fix dynamic loader paths in all ELF SDK binaries
-native_sysroot=$($SUDO_EXEC cat "$env_setup_script" |grep OECORE_NATIVE_SYSROOT|cut -d'=' -f2|tr -d '"')
+native_sysroot=$($SUDO_EXEC cat "$env_setup_script" |grep OECORE_NATIVE_SYSROOT=|cut -d'=' -f2|tr -d '"')
 dl_path=$($SUDO_EXEC find "$native_sysroot"/lib -name "ld-linux*")
 if [ "$dl_path" = "" ] ; then
 	echo "SDK could not be set up. Relocate script unable to find ld-linux.so. Abort!"
 	exit 1
 fi
 #executable_files="'"$($SUDO_EXEC find "$native_sysroot" -type f -perm +111)"'"
-executable_files=$($SUDO_EXEC find "$native_sysroot" -type f -perm +111 -exec printf "\"%s\" " {} \; )
+executable_files=$($SUDO_EXEC find "$native_sysroot" -type f -perm /111 -exec printf "\"%s\" " {} \; )
 
 tdir=`mktemp -d`
 if [ x$tdir = x ] ; then
@@ -126,7 +126,7 @@ if [ $relocate = 1 ] ; then
 fi
 
 # replace /opt/clanton-tiny/1.4.2 with the new prefix in all text files: configs/scripts/etc
-$SUDO_EXEC find "$native_sysroot" -type f -exec file '{}' \;|grep ":.*\(ASCII\|script\|source\).*text"|cut -d':' -f1|$SUDO_EXEC xargs sed -i -e "s:$DEFAULT_INSTALL_DIR:$target_sdk_dir:g"
+$SUDO_EXEC find "$native_sysroot" -type f -exec file '{}' \;|grep ":.*\(ASCII\|script\|source\).*text"|cut -d':' -f1|$SUDO_EXEC xargs -d '\n' sed -i -e "s:$DEFAULT_INSTALL_DIR:$target_sdk_dir:g"
 
 # change all symlinks pointing to /opt/clanton-tiny/1.4.2
 $SUDO_EXEC find "$native_sysroot" -type l|while read l; do
@@ -135,7 +135,7 @@ $SUDO_EXEC find "$native_sysroot" -type l|while read l; do
 done
 # find out all perl scripts in $native_sysroot and modify them replacing the
 # host perl with SDK perl.
-for perl_script in "$($SUDO_EXEC grep "^#\!.*perl" -rls "$native_sysroot")"; do
+for perl_script in $($SUDO_EXEC grep "^#\!.*perl" -rls "$native_sysroot"); do
 	$SUDO_EXEC sed -i -e "s:^#! */usr/bin/perl.*:#! /manusr/bin/env perl:g" -e \
 		"s: /usr/bin/perl: /usr/bin/env perl:g" "$perl_script"
 done

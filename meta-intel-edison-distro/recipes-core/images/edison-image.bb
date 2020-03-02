@@ -96,7 +96,7 @@ IMAGE_INSTALL_append = " ofono"
 IMAGE_INSTALL_append = " battery-voltage"
 
 # Add linux performance monitoring tool
-IMAGE_INSTALL_append = " perf"
+#IMAGE_INSTALL_append = " perf"
 
 # package management - where to find this?
 #IMAGE_INSTALL_append = " aptitude"
