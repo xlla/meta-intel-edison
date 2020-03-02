@@ -56,10 +56,7 @@ IMAGE_INSTALL_append = " gstreamer1.0 gstreamer1.0-meta-base gstreamer1.0-meta-a
 
 # Edison Arduino stuff
 IMAGE_INSTALL_append = " clloader"
-<<<<<<< HEAD
 IMAGE_INSTALL_append = " sketch-check"
-=======
->>>>>>> d66c23e... to support arduino sketches
 
 # Edison Middleware stuff
 IMAGE_INSTALL_append = " packagegroup-core-buildessential"
