@@ -78,16 +78,17 @@ args = parser.parse_args()
 signal.signal(signal.SIGTERM, signal_term_handler)
 signal.signal(signal.SIGINT, signal_term_handler)
 
+#D13 is used by oled
 set_line("TRI_STATE_ALL", 0)
-set_line("SPI_CLK_SEL", 0)
-set_line("MUX18_DIR", 1)
-set_line("TRI_STATE_ALL", 0)
-led = gpiod.Chip("gpiochip0").get_line(40)
+set_line("MUX19_DIR", 1)
+set_line("TRI_STATE_ALL", 1)
+led = gpiod.Chip("gpiochip0").get_line(182)
 led.request(consumer=led.owner().name(), type=gpiod.LINE_REQ_DIR_OUT)
+#when stop , we expected off
 if led.get_value() == 0:
     initial_led_state = "low"
-else:
-    initial_led_state = "high"
+#else:
+#    initial_led_state = "high"
 
 # Blink LED
 if args.duration >= 0:
