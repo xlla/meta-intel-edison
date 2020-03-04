@@ -28,7 +28,7 @@ inherit core-image
 # There seems to be no standard mechanism for doing that, but the below works.
 KERNEL_IMAGETYPE_pn-edison-image-minimal = "bzImage-initramfs-edison.bin"
 
-IMAGE_ROOTFS_SIZE = "1048576"
+IMAGE_ROOTFS_SIZE = "655360"
 
 IMAGE_FEATURES += "package-management ssh-server-openssh"
 # Allow passwordless root login and postinst logging
