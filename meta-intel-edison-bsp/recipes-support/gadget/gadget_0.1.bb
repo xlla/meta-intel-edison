@@ -7,6 +7,7 @@ FILESEXTRAPATHS_prepend := "${THISDIR}/files/:"
 
 SRC_URI = "file://gadget.rules"
 SRC_URI += "file://conf-gadget.sh"
+SRC_URI += "file://usb-gadget@.service"
 
 RDEPENDS_${PN} = "bash"
 
@@ -19,6 +20,9 @@ do_install() {
         # Copy udev rule
         install -d ${D}/${sysconfdir}/udev/rules.d
         install -c -m 644 ${WORKDIR}/gadget.rules ${D}/${sysconfdir}/udev/rules.d
+        # Copy service file
+        install -d ${D}/${systemd_unitdir}/system
+        install -c -m 644 ${WORKDIR}/usb-gadget@.service ${D}/${systemd_unitdir}/system
 }
 
 FILES_${PN} = "${sysconfdir}/udev/rules.d/gadget.rules"

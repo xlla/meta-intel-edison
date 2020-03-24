@@ -1,0 +1,9 @@
+[Unit]
+Description=USB Gadget ifconfig 
+BindsTo=sys-subsystem-net-devices-%i.device
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ifconfig usb0 192.168.2.15 netmask 255.255.255.0
+RemainAfterExit=yes
+

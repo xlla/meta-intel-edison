@@ -4,14 +4,17 @@
 set -euf -o pipefail                                                
                                                                     
 readonly GADGET_BASE_DIR="/sys/kernel/config/usb_gadget/g1"         
-readonly DEV_ETH_ADDR="aa:bb:cc:dd:ee:f1"                           
+readonly DEV_ETH_ADDR="aa:bb:cc:dd:ee:f0"                           
 readonly HOST_ETH_ADDR="aa:bb:cc:dd:ee:f2"                          
+
 readonly USBDISK="/dev/mmcblk0p9"                                   
 readonly SERIAL_TYPE="acm"                                          
 #readonly SERIAL_TYPE="gser"                                        
 #readonly NET_TYPE="eem"                                            
 readonly NET_TYPE="rndis"                                           
-readonly LANGUAGE=0x409 # English
+
+readonly NET_TYPE2="rndis"    
+readonly LANGUAGE="0x409" # English
 readonly MANUFACTURER="Intel"
 readonly PRODUCT="Edison"
 
@@ -51,6 +54,16 @@ echo "${HOST_ETH_ADDR}" > "functions/${NET_TYPE}.usb0/host_addr"
 echo RNDIS   > functions/rndis.usb0/os_desc/interface.rndis/compatible_id
 echo 5162001 > functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id
 
+#MAKE "Icons" EXTENDED PROPERTY
+mkdir "functions/${NET_TYPE2}.usb0/os_desc/interface.rndis/Icons"
+echo 2 > "functions/${NET_TYPE2}.usb0/os_desc/interface.rndis/Icons/type"
+echo "%SystemRoot%\\system32\\shell32.dll,-233" > "functions/${NET_TYPE2}.usb0/os_desc/interface.rndis/Icons/data"
+
+#MAKE "Label" EXTENDED PROPERTY
+mkdir "functions/${NET_TYPE2}.usb0/os_desc/interface.rndis/Label"
+echo 1 > "functions/${NET_TYPE2}.usb0/os_desc/interface.rndis/Label/type"
+echo "Edison Net" > "functions/${NET_TYPE2}.usb0/os_desc/interface.rndis/Label/data"
+                                   
 ln -s "functions/${NET_TYPE}.usb0" configs/c.1/                     
 ###                                                                 
                                                                     
@@ -74,7 +87,7 @@ echo "8452e52a5b73f5f38c917327f40a577c" > strings/$LANGUAGE/serialnumber
 echo $MANUFACTURER > strings/$LANGUAGE/manufacturer               
 echo $PRODUCT > strings/$LANGUAGE/product                      
 echo "mass rndis acm" > configs/c.1/strings/$LANGUAGE/configuration     
-echo 120 > configs/c.1/MaxPower                                     
+echo 500 > configs/c.1/MaxPower                                     
                                                                     
 echo "Configuring gadget as composite device"
 # https://msdn.microsoft.com/en-us/library/windows/hardware/ff540054(v=vs.85).aspx
