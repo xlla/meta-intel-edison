@@ -1,0 +1,1519 @@
+From be6b4f74ed9788d1837438758c4fe68e587510c6 Mon Sep 17 00:00:00 2001
+From: xlla <xllacyx@hotmail.com>
+Date: Wed, 18 Mar 2020 23:55:35 +0800
+Subject: [PATCH] add intel mcu
+
+---
+ arch/x86/configs/i386_defconfig               |   1 +
+ arch/x86/configs/x86_64_defconfig             |   1 +
+ drivers/hwmon/Kconfig                         |   9 +
+ drivers/hwmon/Makefile                        |   1 +
+ drivers/hwmon/intel_mcu_common.c              | 701 ++++++++++++++++++
+ drivers/hwmon/intel_mcu_common.h              |  79 ++
+ drivers/platform/x86/Kconfig                  |  20 +
+ drivers/platform/x86/Makefile                 |   2 +
+ drivers/platform/x86/intel_psh_ipc.c          | 539 ++++++++++++++
+ .../linux/platform_data/x86/intel_psh_ipc.h   |  36 +
+ init/calibrate.c                              |   5 +
+ 11 files changed, 1394 insertions(+)
+ create mode 100644 drivers/hwmon/intel_mcu_common.c
+ create mode 100644 drivers/hwmon/intel_mcu_common.h
+ create mode 100644 drivers/platform/x86/intel_psh_ipc.c
+ create mode 100644 include/linux/platform_data/x86/intel_psh_ipc.h
+
+diff --git a/arch/x86/configs/i386_defconfig b/arch/x86/configs/i386_defconfig
+index ca375952d895..c79f3fa1a920 100644
+--- a/arch/x86/configs/i386_defconfig
++++ b/arch/x86/configs/i386_defconfig
+@@ -353,6 +353,7 @@ CONFIG_USB_CHIPIDEA_HOST=y
+ CONFIG_X86_EXTENDED_PLATFORM=y
+ CONFIG_X86_INTEL_MID=y
+ CONFIG_INTEL_IDMA64=y
++CONFIG_INTEL_PSH_IPC=y
+ CONFIG_MFD_CORE=y
+ CONFIG_MFD_INTEL_LPSS_PCI=y
+ CONFIG_MFD_INTEL_LPSS_ACPI=y
+diff --git a/arch/x86/configs/x86_64_defconfig b/arch/x86/configs/x86_64_defconfig
+index 677e3f14764b..450546afc0d5 100644
+--- a/arch/x86/configs/x86_64_defconfig
++++ b/arch/x86/configs/x86_64_defconfig
+@@ -351,6 +351,7 @@ CONFIG_X86_EXTENDED_PLATFORM=y
+ CONFIG_X86_INTEL_MID=y
+ CONFIG_INTEL_IDLE=y
+ CONFIG_INTEL_IDMA64=y
++CONFIG_INTEL_PSH_IPC=y
+ CONFIG_MFD_CORE=y
+ CONFIG_MFD_INTEL_LPSS_PCI=y
+ CONFIG_MFD_INTEL_LPSS_ACPI=y
+diff --git a/drivers/hwmon/Kconfig b/drivers/hwmon/Kconfig
+index 23dfe848979a..449a140903cd 100644
+--- a/drivers/hwmon/Kconfig
++++ b/drivers/hwmon/Kconfig
+@@ -834,6 +834,15 @@ config SENSORS_LTQ_CPUTEMP
+ 	  If you say yes here you get support for the temperature
+ 	  sensor inside your CPU.
+ 
++config INTEL_MCU
++        tristate "Intel generic MCU control interface"
++        help
++          Say Y here to enable control interface for intel mcu
++
++          This driver provide userspace tty interface for the control and
++          message output.
++          You could use normal read/write to complete those operation.
++
+ config SENSORS_MAX1111
+ 	tristate "Maxim MAX1111 Serial 8-bit ADC chip and compatibles"
+ 	depends on SPI_MASTER
+diff --git a/drivers/hwmon/Makefile b/drivers/hwmon/Makefile
+index 6db5db9cdc29..f6839d3f2b54 100644
+--- a/drivers/hwmon/Makefile
++++ b/drivers/hwmon/Makefile
+@@ -180,6 +180,7 @@ obj-$(CONFIG_SENSORS_W83L785TS)	+= w83l785ts.o
+ obj-$(CONFIG_SENSORS_W83L786NG)	+= w83l786ng.o
+ obj-$(CONFIG_SENSORS_WM831X)	+= wm831x-hwmon.o
+ obj-$(CONFIG_SENSORS_WM8350)	+= wm8350-hwmon.o
++obj-$(CONFIG_INTEL_MCU)        += intel_mcu_common.o
+ obj-$(CONFIG_SENSORS_XGENE)	+= xgene-hwmon.o
+ 
+ obj-$(CONFIG_SENSORS_OCC)	+= occ/
+diff --git a/drivers/hwmon/intel_mcu_common.c b/drivers/hwmon/intel_mcu_common.c
+new file mode 100644
+index 000000000000..72ae22184096
+--- /dev/null
++++ b/drivers/hwmon/intel_mcu_common.c
+@@ -0,0 +1,701 @@
++/**
++ * intel_mcu_common.c - Intel MCU common interface file
++ *
++ * Copyright (C) 2014 Intel Inc. - http://www.intel.com
++ *
++ * Authors: Lei Wen <lei.wen@intel.com>,
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions, and the following disclaimer,
++ *    without modification.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The names of the above-listed copyright holders may not be used
++ *    to endorse or promote products derived from this software without
++ *    specific prior written permission.
++ *
++ * ALTERNATIVELY, this software may be distributed under the terms of the
++ * GNU General Public License ("GPL") version 2, as published by the Free
++ * Software Foundation.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
++ * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++#include <linux/delay.h>
++#include <linux/kernel.h>
++#include <linux/device.h>
++#include <linux/errno.h>
++#include <linux/init.h>
++#include <linux/slab.h>
++#include <linux/tty.h>
++#include <linux/tty_driver.h>
++#include <linux/tty_flip.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/platform_device.h>
++#include <linux/uaccess.h>
++#include <asm/byteorder.h>
++#include <asm/unaligned.h>
++#include <linux/list.h>
++#include <linux/pci.h>
++#include <linux/completion.h>
++#include <linux/firmware.h>
++// #include <asm/intel_psh_ipc.h>
++#include <linux/platform_data/x86/intel_psh_ipc.h>
++#include "intel_mcu_common.h"
++#include <linux/circ_buf.h>
++
++#define APP_IMR_SIZE (1024 * 126)
++#define DRIVER_AUTHOR "Lei Wen <lei.wen@intel.com>"
++#define DRIVER_DESC "Intel mcu common control interface"
++#define INTEL_MCU_TTY_MAJOR		168
++#define INTEL_MCU_TTY_MINORS		3
++
++#define LOAD_APP		"load mcu app"
++#define GET_VERSION		"get mcu app version"
++struct tty_driver *intel_mcu_tty_driver;
++
++#define VER_LEN		1024
++struct mcu {
++	char ver[VER_LEN];
++	uintptr_t ddr_phy[2];
++	void *ddr[2];
++	int load_in_progress;
++};
++
++struct mcu_data {
++	struct device *dev;
++	struct tty_port port;
++	struct mcu *mcu;
++	struct completion cmp;
++	struct loop_buffer lbuf;
++	int index;
++};
++
++static struct mcu_data *mcu_table[INTEL_MCU_TTY_MINORS];
++static int log_level = 1;
++static char *debug_msg[] = {
++	"fatal",
++	"error",
++	"warning",
++	"info",
++	"debug",
++};
++
++static int send_cmd(struct mcu_data *data,
++		struct psh_msg *in, int ch, int wait)
++{
++	int ret;
++	ret = intel_ia2psh_command(in, NULL, ch, 1000000);
++	if (ret)
++		return ret;
++
++	if (wait) {
++		ret = wait_for_completion_timeout(&data->cmp, 3 * HZ);
++		if (ret == 0)
++			return -ETIME;
++	}
++
++	return 0;
++}
++
++static void lbuf_read_reset(struct loop_buffer *lbuf)
++{
++	if (lbuf) {
++		lbuf->off_head = lbuf->off_tail = 0;
++		lbuf->in_reading = 0;
++	}
++}
++
++static int lbuf_read_next(struct loop_buffer *lbuf, u8 **buf, u16 *size)
++{
++	struct frame_head *fhead =
++		(struct frame_head *)(lbuf->addr + lbuf->off_head);
++	*buf = NULL;
++	*size = 0;
++
++	if (lbuf->in_reading) {
++		lbuf->in_reading = 0;
++
++		/* go over previous frame has been read */
++		lbuf->off_head += frame_size(fhead->length);
++		lbuf->off_tail = lbuf->off_head;
++		fhead = (struct frame_head *)(lbuf->addr + lbuf->off_head);
++	}
++
++	if (fhead->sign == LBUF_DISCARD_SIGN) {
++		fhead = (struct frame_head *)lbuf->addr;
++		lbuf->off_head = lbuf->off_tail = 0;
++	}
++
++	if (fhead->sign == LBUF_CELL_SIGN) {
++
++		*buf = lbuf->addr + lbuf->off_head + sizeof(*fhead);
++		*size = fhead->length;
++		lbuf->in_reading = 1;
++	}
++
++	return !lbuf->in_reading;
++}
++
++static int intel_mcu_mcudbg_level(struct mcu_data *data, int level)
++{
++	struct psh_msg in;
++	struct cmd_debug_param *param;
++
++	in.param = 0;
++	in.msg = CMD_MCU_APP_DEBUG;
++	param = (struct cmd_debug_param *) (&(in.param));
++	if (level > 0) {
++		param->level = level;
++		param->sub_cmd = CMD_DEBUG_SET_MASK;
++	} else
++		param->sub_cmd = CMD_DEBUG_GET_MASK;
++
++	return send_cmd(data, &in, PSH2IA_CHANNEL2, 1);
++}
++
++static void push_char_into_port(struct tty_port *port, const char *buf, int len)
++{
++	int count;
++
++	if (len <= 0)
++		return;
++
++	do {
++		count = tty_insert_flip_string(port, buf, len);
++		len -= count;
++		buf += count;
++	} while (len > 0);
++
++	tty_flip_buffer_push(port);
++}
++
++static int intel_mcu_tty_open(struct tty_struct *tty, struct file *filp)
++{
++	dev_dbg(tty->dev, "%s\n", __func__);
++	tty->driver_data = mcu_table[tty->index];
++	/*
++	 * For we may get data cached while we don't open this tty,
++	 * so we need to flush out buffer, then we could
++	 * get full content without disappoint user
++	 */
++	if (tty->port)
++		tty_flip_buffer_push(tty->port);
++
++	return 0;
++}
++
++static void intel_mcu_tty_close(struct tty_struct *tty, struct file *filp)
++{
++	dev_dbg(tty->dev, "%s\n", __func__);
++	tty->driver_data = NULL;
++}
++
++static int do_get_ver(struct mcu_data *data)
++{
++	struct psh_msg in;
++
++	in.param = 0;
++	in.msg = CMD_MCU_APP_GET_VERSION;
++	return send_cmd(data, &in, PSH2IA_CHANNEL2, 1);
++}
++
++static int do_setup_ddr(struct mcu_data *data)
++{
++	struct mcu *mcu = data->mcu;
++	const struct firmware *fw_entry;
++	static int fw_load_done;
++	char fname[20];
++	struct psh_msg in;
++
++	if (fw_load_done)
++		return 0;
++
++	snprintf(fname, 20, "intel_mcu.bin");
++	if (!request_firmware(&fw_entry, fname, data->dev)) {
++		if (!fw_entry)
++			return -ENOMEM;
++
++		pr_debug("psh fw size %d virt:0x%p\n",
++				(int)fw_entry->size, fw_entry->data);
++		if (fw_entry->size > APP_IMR_SIZE) {
++			pr_err("psh fw size too big\n");
++		} else {
++			memcpy(mcu->ddr[0], fw_entry->data,
++					fw_entry->size);
++			in.msg = CMD_MCU_LOAD_APP;
++			in.param = mcu->ddr_phy[0];
++			mcu->load_in_progress = 1;
++			if (send_cmd(data, &in, PSH2IA_CHANNEL3, 1))
++				return -1;
++			fw_load_done = 1;
++		}
++		release_firmware(fw_entry);
++	} else {
++		pr_err("cannot find psh firmware(%s)\n", fname);
++		return -ENODEV;
++	}
++	in.msg = CMD_MCU_SETUP_DDR;
++	in.param = mcu->ddr_phy[1];
++	return send_cmd(data, &in, PSH2IA_CHANNEL2, 1);
++}
++
++static ssize_t load_app_store(struct device *device,
++		struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	int len = strlen(LOAD_APP);
++
++	if (count >= len && strncmp(buf, LOAD_APP, len) == 0) {
++		do_setup_ddr(mcu_table[2]);
++		return count;
++	}
++
++	pr_err("Please provide right string as [%s]!\n", LOAD_APP);
++	return -1;
++}
++
++static ssize_t get_ver_show(struct device *device,
++		struct device_attribute *attr, char *buf)
++{
++	struct mcu_data *data = mcu_table[2];
++	struct mcu *mcu = data->mcu;
++
++	if (do_get_ver(data))
++		return -1;
++
++	return scnprintf(buf, VER_LEN, "%s", mcu->ver);
++}
++
++static ssize_t mdbg_control_show(struct device *device,
++		struct device_attribute *attr, char *buf)
++{
++	if (intel_mcu_mcudbg_level(mcu_table[2], -1) < 0)
++		goto err;
++
++	if (log_level > 0 && log_level < 6)
++		return scnprintf(buf, 8, "%s\n", debug_msg[log_level - 1]);
++
++err:
++	pr_info("get log level err\n");
++	return -1;
++}
++/*
++ *set msg level:echo log_level=fatal|info|warning|error|debug| >control
++*/
++#define LOG_LEVEL	"fatal|error|warning|info|debug"
++static ssize_t mdbg_control_store(struct device *device,
++		struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct mcu_data *data = mcu_table[2];
++	int level = 0;
++	long ltmp = 0;
++
++	if (!buf)
++		return -1;
++	if (!strncmp(buf, "fatal", strlen("fatal")))
++		level = 1;
++	else if (!strncmp(buf, "error", strlen("error")))
++		level = 2;
++	else if (!strncmp(buf, "warning", strlen("warning")))
++		level = 3;
++	else if (!strncmp(buf, "info", strlen("info")))
++		level = 4;
++	else if (!strncmp(buf, "debug", strlen("debug")))
++		level = 5;
++	else {
++		int err;
++		err = kstrtol(buf, 10, &ltmp);
++		if (!err && (ltmp > 0) && (ltmp < 6))
++			level = ltmp;
++		else {
++			pr_err("Please input words as [%s]\n", LOG_LEVEL);
++			return -1;
++		}
++	}
++	pr_info("set level:%d\n", level);
++	if (intel_mcu_mcudbg_level(data, level) < 0)
++		return -1;
++	return count;
++}
++
++static DEVICE_ATTR(control, 0200, NULL, load_app_store);
++static DEVICE_ATTR(fw_version, 0400, get_ver_show, NULL);
++static DEVICE_ATTR(log_level, 0600, mdbg_control_show, mdbg_control_store);
++
++static struct attribute *control_sysfs_attrs[] = {
++	&dev_attr_control.attr,
++	&dev_attr_fw_version.attr,
++	&dev_attr_log_level.attr,
++	NULL,
++
++};
++
++static struct attribute_group intel_mcu_tty_attribute_group = {
++	.name = NULL,
++	.attrs = control_sysfs_attrs,
++
++};
++
++static void raw_output(struct mcu_data *data, int ch,
++		const unsigned char *buf, int count)
++{
++	struct psh_msg in;
++	int i, left;
++
++	for (i = 0; i < count; i += 4) {
++		left = count - i;
++		if (left > 4) {
++			left = 4;
++			in.msg = PSH_IPC_CONTINUE;
++		} else
++			in.msg = 0;
++
++		memcpy(&in.param, buf, left);
++		buf += left;
++		send_cmd(data, &in, ch, 0);
++	}
++}
++
++#define TTY_WRITE_ROOM		512
++static int intel_mcu_tty_write(struct tty_struct *tty,
++		const unsigned char *buf, int count)
++{
++	struct mcu_data *data = tty->driver_data;
++
++	switch (tty->index) {
++	default:
++		pr_err("TTY index %d not supported!\n", tty->index);
++	case 1:
++		return -1;
++	case 0:
++		if (count > TTY_WRITE_ROOM) {
++			pr_err("Port 0's input size is limited by %d!\n",
++					TTY_WRITE_ROOM);
++			return -1;
++		}
++		raw_output(data, tty->index, buf, count);
++		break;
++	}
++	return count;
++}
++
++static int intel_mcu_tty_write_room(struct tty_struct *tty)
++{
++	return TTY_WRITE_ROOM;
++}
++
++static const struct tty_operations intel_mcu_ops = {
++	.open =			intel_mcu_tty_open,
++	.close =		intel_mcu_tty_close,
++	.write =		intel_mcu_tty_write,
++	.write_room =		intel_mcu_tty_write_room,
++};
++
++static int mem_alloc(struct pci_dev *pdev, uintptr_t *phy_addr,
++		void **virt_addr, int bar)
++{
++	void __iomem *mem;
++	int ret = 0;
++	unsigned long start = 0, len;
++
++	/* dedicate isolated memory region */
++	start = pci_resource_start(pdev, bar);
++	len = pci_resource_len(pdev, bar);
++	if (!start || !len) {
++		dev_err(&pdev->dev, "bar %d address not set\n", bar);
++		ret = -EINVAL;
++		goto err;
++	}
++
++	ret = pci_request_region(pdev, bar, "intel_mcu");
++	if (ret) {
++		dev_err(&pdev->dev,
++				"failed to request psh region 0x%lx-0x%lx\n",
++				start,
++				(unsigned long)pci_resource_end(pdev, bar));
++		goto err;
++	}
++
++	mem = ioremap_nocache(start, len);
++	if (!mem) {
++		dev_err(&pdev->dev, "can not ioremap app imr address\n");
++		ret = -EINVAL;
++		goto err_ioremap;
++	}
++
++	*phy_addr = start;
++	*virt_addr = (void *)mem;
++	return 0;
++
++err_ioremap:
++	pci_release_region(pdev, bar);
++err:
++	return ret;
++}
++
++static void cmd_handler(u32 msg, u32 param, void *_data)
++{
++	struct mcu_data *data = (struct mcu_data *)_data;
++	struct mcu *mcu = data->mcu;
++	struct cmd_resp *resp;
++	const struct version_resp *version;
++	struct debug_resp *debug_resp;
++	u8 *dbuf = NULL;
++	u16 size = 0;
++
++	if (mcu->load_in_progress) {
++		mcu->load_in_progress = 0;
++		goto done;
++	}
++
++	while (!lbuf_read_next(&data->lbuf, &dbuf, &size)) {
++		resp = (struct cmd_resp *)dbuf;
++
++		if (!resp->len)
++			continue;
++
++		switch (resp->cmd_id) {
++		case CMD_MCU_APP_GET_VERSION:
++			version = (struct version_resp *)resp->param;
++			if (version->total_length)
++				snprintf(mcu->ver, VER_LEN, version->buf,
++						version->total_length);
++			break;
++		case CMD_MCU_APP_DEBUG:
++			debug_resp = (struct debug_resp *)resp->param;
++			log_level = debug_resp->level;
++		default:
++			break;
++		}
++	}
++done:
++	complete(&data->cmp);
++}
++
++static void raw_data_handler(u32 msg, u32 param, void *_data)
++{
++	struct mcu_data *data = (struct mcu_data *)_data;
++	struct cmd_resp *resp;
++	u8 *dbuf = NULL;
++	u16 size = 0;
++
++	while (!lbuf_read_next(&data->lbuf, &dbuf, &size)) {
++		resp = (struct cmd_resp *)dbuf;
++		push_char_into_port(&data->port, resp->param, resp->len);
++	}
++	complete(&data->cmp);
++}
++
++static int mcu_platform_probe(struct platform_device *pdev)
++{
++	int ret, i;
++	struct mcu_data *data;
++	struct mcu *mcu;
++	u8 *base;
++
++	mcu = platform_get_drvdata(pdev);
++	intel_mcu_tty_driver = alloc_tty_driver(INTEL_MCU_TTY_MINORS);
++	if (!intel_mcu_tty_driver) {
++		dev_err(&pdev->dev, "fail to alloc tty driver\n");
++		return -ENODEV;
++	}
++
++	intel_mcu_tty_driver->name = "ttymcu";
++	intel_mcu_tty_driver->major = INTEL_MCU_TTY_MAJOR;
++	intel_mcu_tty_driver->minor_start = 0;
++	intel_mcu_tty_driver->type = TTY_DRIVER_TYPE_SERIAL;
++	intel_mcu_tty_driver->subtype = SERIAL_TYPE_NORMAL;
++	intel_mcu_tty_driver->flags = TTY_DRIVER_REAL_RAW
++		| TTY_DRIVER_DYNAMIC_DEV;
++	intel_mcu_tty_driver->init_termios = tty_std_termios;
++	intel_mcu_tty_driver->init_termios.c_cflag = B9600 | CS8 | CREAD |
++		HUPCL | CLOCAL;
++	intel_mcu_tty_driver->init_termios.c_ispeed = 38400;
++	intel_mcu_tty_driver->init_termios.c_ospeed = 38400;
++	intel_mcu_tty_driver->init_termios.c_iflag = 0;
++	intel_mcu_tty_driver->init_termios.c_oflag = 0;
++	intel_mcu_tty_driver->init_termios.c_lflag = 0;
++	tty_set_operations(intel_mcu_tty_driver, &intel_mcu_ops);
++
++	ret = tty_register_driver(intel_mcu_tty_driver);
++	if (ret) {
++		dev_err(&pdev->dev, "fail to register tty driver\n");
++		goto tty_reg_fail;
++	}
++
++	base = (u8 *)mcu->ddr[1];
++	for (i = INTEL_MCU_TTY_MINORS - 1; i >= 0; i--) {
++		data = kzalloc(sizeof(struct mcu_data), GFP_KERNEL);
++		if (data == NULL) {
++			dev_err(&pdev->dev, "fail to alloc mcu data\n");
++			goto data_alloc_fail;
++		}
++
++		data->index = i;
++		tty_port_init(&data->port);
++		data->dev = tty_port_register_device(&data->port,
++				intel_mcu_tty_driver, i, &pdev->dev);
++		mcu_table[i] = data;
++		data->mcu = mcu;
++		init_completion(&data->cmp);
++		data->lbuf.addr = base;
++		data->lbuf.length = BUF_IA_DDR_SIZE;
++		lbuf_read_reset(&data->lbuf);
++		base += BUF_IA_DDR_SIZE;
++	}
++	ret = sysfs_create_group(&pdev->dev.kobj,
++			&intel_mcu_tty_attribute_group);
++	if (ret) {
++		pr_err("failed to create the mdbg sysfs attributes\n");
++		sysfs_remove_group(&pdev->dev.kobj,
++				&intel_mcu_tty_attribute_group);
++		goto data_alloc_fail;
++	}
++
++	intel_psh_ipc_bind(PSH_RECV_CH0, raw_data_handler, mcu_table[0]);
++	intel_psh_ipc_bind(PSH_RECV_CH1, raw_data_handler, mcu_table[1]);
++	intel_psh_ipc_bind(PSH_RECV_CH2, cmd_handler, mcu_table[2]);
++
++	pr_info("MCU detected and ready to used!\n");
++
++	return 0;
++
++data_alloc_fail:
++	for (i = 0; i < INTEL_MCU_TTY_MINORS; i++)
++		kfree(mcu_table[i]);
++tty_reg_fail:
++	put_tty_driver(intel_mcu_tty_driver);
++	return ret;
++}
++
++static int mcu_platform_remove(struct platform_device *pdev)
++{
++	struct mcu *mcu;
++	int i;
++
++	mcu = platform_get_drvdata(pdev);
++	sysfs_remove_group(&pdev->dev.kobj,
++			&intel_mcu_tty_attribute_group);
++
++	for (i = 0; i < INTEL_MCU_TTY_MINORS; i++)
++		kfree(mcu_table[i]);
++	put_tty_driver(intel_mcu_tty_driver);
++	kfree(mcu);
++
++	return 0;
++}
++
++static struct platform_driver intel_mcu_platform = {
++	.driver = {
++		.name	= "intel_mcu",
++	},
++	.probe		= mcu_platform_probe,
++	.remove		= mcu_platform_remove,
++};
++module_platform_driver(intel_mcu_platform);
++
++static int intel_mcu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
++{
++	struct platform_device *dev;
++	struct mcu *mcu;
++	int ret;
++
++	ret = pci_enable_device(pdev);
++	if (ret) {
++		dev_err(&pdev->dev, "fail to enable psh pci device\n");
++		return -ENODEV;
++	}
++
++	mcu = kzalloc(sizeof(struct mcu), GFP_KERNEL);
++	if (!mcu) {
++		dev_err(&pdev->dev, "cannot allocate memory for mcu\n");
++		ret = -ENOMEM;
++		goto mcu_err;
++	}
++
++	ret = mem_alloc(pdev, &mcu->ddr_phy[0], &mcu->ddr[0], 0);
++	if (ret)
++		goto plat_alloc_fail;
++
++	ret = mem_alloc(pdev, &mcu->ddr_phy[1], &mcu->ddr[1], 1);
++	if (ret)
++		goto plat_alloc_fail;
++
++	dev = platform_device_alloc("intel_mcu", -1);
++	if (!dev) {
++		ret = -ENODEV;
++		goto plat_alloc_fail;
++	}
++
++	dev->dev.dma_mask = &dev->dev.coherent_dma_mask;
++	platform_set_drvdata(dev, mcu);
++	dev_set_drvdata(&pdev->dev, mcu);
++
++	ret = platform_device_add(dev);
++	return ret;
++
++plat_alloc_fail:
++	kfree(mcu);
++mcu_err:
++	pci_dev_put(pdev);
++	return ret;
++}
++
++static void intel_mcu_remove(struct pci_dev *pdev)
++{
++	struct mcu *mcu;
++
++	mcu = dev_get_drvdata(&pdev->dev);
++	iounmap((void __iomem *)mcu->ddr[0]);
++	iounmap((void __iomem *)mcu->ddr[1]);
++
++	pci_release_region(pdev, 0);
++	pci_release_region(pdev, 1);
++	pci_dev_put(pdev);
++}
++
++static const struct pci_device_id pci_ids[] = {
++	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x11a4)},
++	{ 0,}
++};
++
++MODULE_DEVICE_TABLE(pci, pci_ids);
++static struct pci_driver intel_mcu_driver = {
++	.name = "intel_mcu",
++	.id_table = pci_ids,
++	.probe	= intel_mcu_probe,
++	.remove	= intel_mcu_remove,
++};
++
++static int __init intel_mcu_init(void)
++{
++	return pci_register_driver(&intel_mcu_driver);
++}
++
++static void __exit intel_mcu_exit(void)
++{
++	pci_unregister_driver(&intel_mcu_driver);
++}
++
++module_init(intel_mcu_init);
++module_exit(intel_mcu_exit);
++MODULE_AUTHOR(DRIVER_AUTHOR);
++MODULE_DESCRIPTION(DRIVER_DESC);
++MODULE_LICENSE("GPL");
++MODULE_ALIAS_CHARDEV_MAJOR(INTEL_MCU_TTY_MAJOR);
+\ No newline at end of file
+diff --git a/drivers/hwmon/intel_mcu_common.h b/drivers/hwmon/intel_mcu_common.h
+new file mode 100644
+index 000000000000..1ffd08124b34
+--- /dev/null
++++ b/drivers/hwmon/intel_mcu_common.h
+@@ -0,0 +1,79 @@
++#ifndef _EDISON_COMMON_H_
++#define _EDISON_COMMON_H_
++
++#define PSH2IA_CHANNEL0	0
++#define PSH2IA_CHANNEL1	1
++#define PSH2IA_CHANNEL2	2
++#define PSH2IA_CHANNEL3	3
++
++enum cmd_id {
++	CMD_MCU_LOAD_APP = 0,
++	CMD_MCU_SETUP_DDR,
++	CMD_MCU_APP_DEBUG,
++	CMD_MCU_APP_GET_VERSION,
++};
++
++#define CIRC_SIZE (1024 * 64)
++struct ddr_param {
++	u32 ddr;
++	u32 ddr1;
++} __packed;
++
++#define CMD_DEBUG_SET_MASK	((u8)0x1)
++#define CMD_DEBUG_GET_MASK	((u8)0x2)
++#define MCU_DBG_ALL		((u16)-1)
++#define MCU_DBG_FATAL		1
++#define MCU_DBG_ERR		2
++#define MCU_DBG_WARN	3
++#define MCU_DBG_INFO	4
++#define MCU_DBG_DBG		5
++
++struct cmd_debug_param {
++	u8 sub_cmd;
++	u16 level;
++	char tag[30];
++} __packed;
++
++#define RESP_PARAM_MAX_SIZE	56
++struct cmd_resp {
++	u8 cmd_id;
++	u8 len;
++	int ret;
++	char param[RESP_PARAM_MAX_SIZE];
++} __packed;
++
++struct debug_resp {
++	u16 level;
++} __packed;
++
++struct version_resp {
++	u8 total_length;
++	u8 segment_length;
++	u8 sequence_number;
++	char buf[0];
++} __packed;
++
++#define LBUF_CELL_SIGN ((u16)0x4853)
++#define LBUF_EMPTY_SIGN ((u16)0x0000)
++#define LBUF_DISCARD_SIGN ((u16)0x4944)
++#define size_align(size) ((size % 4) ? (size + 4 - (size % 4)) : size)
++#define frame_size(size) (size_align(size) + \
++		sizeof(struct frame_head))
++
++struct frame_head {
++	u16 sign;
++	u16 length;
++	u8 buf[0];
++} __packed;
++
++#define BUF_IA_DDR_SIZE 8192
++struct loop_buffer {
++	int in_reading;
++	u8 *addr;
++	u16 length;
++
++	u16 off_head;
++	u16 off_tail;
++};
++
++#endif
+diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
+index 27d5b40fb717..8442ad7f1218 100644
+--- a/drivers/platform/x86/Kconfig
++++ b/drivers/platform/x86/Kconfig
+@@ -1067,6 +1067,26 @@ config INTEL_PMC_CORE
+ 		- LTR Ignore
+ 		- MPHY/PLL gating status (Sunrisepoint PCH only)
+ 
++config INTEL_PSH_IPC
++       bool "Intel Platform Services Hub IPC Support"
++       depends on X86_INTEL_MID
++       ---help---
++         Platform Services Hub (PSH) is a low frequence IA core in
++         Intel Tangier SoC, whose power consumption is quite low. PSH
++         runs RTOS software inside itself, which independently controls
++         and collects sensor data, pre-processes the data, and
++         communicates with Intel Atom core. The latter could be put
++         into low power state for a long time, while all the sensor
++         data are collected without any lost.
++
++         PSH IPC is used as a bridge for OS sensor service to control
++         and access PSH sensors communications between kernel and PSH.
++         This is not needed for PC-type machines. Supported SoCs for
++         now:
++               - Intel Tangier
++
++         Say Y here to get Intel PSH IPC support.
++
+ config IBM_RTL
+ 	tristate "Device driver to enable PRTL support"
+ 	depends on PCI
+diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
+index 42d85a00be4e..4f2e815b8d4e 100644
+--- a/drivers/platform/x86/Makefile
++++ b/drivers/platform/x86/Makefile
+@@ -72,6 +72,8 @@ obj-$(CONFIG_INTEL_SCU_IPC)	+= intel_scu_ipc.o
+ obj-$(CONFIG_INTEL_SCU_IPC_UTIL) += intel_scu_ipcutil.o
+ obj-$(CONFIG_INTEL_MFLD_THERMAL) += intel_mid_thermal.o
+ obj-$(CONFIG_INTEL_IPS)		+= intel_ips.o
++obj-$(CONFIG_INTEL_PSH_IPC)    += intel_psh_ipc.o
++
+ obj-$(CONFIG_XO1_RFKILL)	+= xo1-rfkill.o
+ obj-$(CONFIG_XO15_EBOOK)	+= xo15-ebook.o
+ obj-$(CONFIG_IBM_RTL)		+= ibm_rtl.o
+diff --git a/drivers/platform/x86/intel_psh_ipc.c b/drivers/platform/x86/intel_psh_ipc.c
+new file mode 100644
+index 000000000000..eeed675d0c47
+--- /dev/null
++++ b/drivers/platform/x86/intel_psh_ipc.c
+@@ -0,0 +1,539 @@
++/*
++ * Driver for the Intel PSH IPC mechanism
++ *
++ * (C) Copyright 2012 Intel Corporation
++ * Author: Yang Bin (bin.yang@intel.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2
++ * of the License.
++ */
++
++#include <linux/delay.h>
++#include <linux/fs.h>
++#include <linux/init.h>
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/pci.h>
++#include <linux/platform_data/x86/intel_psh_ipc.h>
++#include <linux/pm_runtime.h>
++#include <linux/semaphore.h>
++#include <linux/workqueue.h>
++
++#define STATUS_PSH2IA(x)       (1 << ((x) + 6))
++#define FLAG_BIND              (1 << 0)
++
++#define PIMR_ADDR(x)           (&ipcdev->psh_regs->pimr##x)
++
++#define PSH_REG_ADDR(x)                (&ipcdev->psh_regs->x)
++
++#define PSH_CH_HANDLE(x)       (ipcdev->channel_handle[x])
++#define PSH_CH_DATA(x)         (ipcdev->channel_data[x])
++#define PSH_CH_FLAG(x)         (ipcdev->flags[x])
++
++/* PSH registers */
++struct psh_registers {
++       u32             pimr0;          /* 00h */
++       u32             csr;            /* 04h */
++       u32             pmctl;          /* 08h */
++       u32             pmstat;         /* 0Ch */
++       u32             psh_msi_direct; /* 10h */
++       u32             res1[59];       /* 14h ~ FCh + 3, padding */
++       u32             pimr3;          /* 100h */
++       struct psh_msg  scu2psh;        /* 104h ~ 108h + 3 */
++       struct psh_msg  psh2scu;        /* 10Ch ~ 110h + 3 */
++       u32             res2[187];      /* 114h ~ 3FCh + 3, padding */
++       u32             pisr;           /* 400h */
++       u32             scratchpad[2];  /* 404h ~ 407h */
++       u32             res3[61];       /* 40Ch ~ 4FCh + 3, padding */
++       u32             pimr1;          /* 500h */
++       struct psh_msg  ia2psh[NUM_IA2PSH_IPC]; /* 504h ~ 520h + 3 */
++       struct psh_msg  psh2ia[NUM_PSH2IA_IPC]; /* 524h ~ 540h + 3 */
++       u32             res4[175];      /* 544h ~ 7FCh + 3, padding */
++       u32             pimr2;          /* 800h */
++       struct psh_msg  cry2psh;        /* 804h ~ 808h + 3 */
++       struct psh_msg  psh2cry;        /* 80Ch ~ 810h + 3 */
++} __packed;
++
++struct ipc_controller_t {
++       struct device *dev;
++       struct psh_registers __iomem *psh_regs;
++       int irq;
++
++       spinlock_t              lock;
++       int                     flags[NUM_ALL_CH];
++       struct semaphore        ch_lock[NUM_ALL_CH];
++       struct mutex            psh_mutex;
++       psh_channel_handle_t    channel_handle[NUM_PSH2IA_IPC];
++       void                    *channel_data[NUM_PSH2IA_IPC];
++};
++
++static struct ipc_controller_t *ipc_ctrl;
++
++/**
++ * intel_ia2psh_command - send IA to PSH command
++ * Send ia2psh command and return psh message and status
++ *
++ * @in: input psh message
++ * @out: output psh message
++ * @ch: psh channel
++ * @timeout: timeout for polling busy bit, in us
++ */
++int intel_ia2psh_command(struct psh_msg *in, struct psh_msg *out, int ch, int timeout)
++{
++       struct ipc_controller_t *ipcdev = ipc_ctrl;
++       u32 status;
++       int ret = 0;
++
++       might_sleep();
++
++       if (!ipcdev)
++               return -ENODEV;
++
++       if (ch < PSH_SEND_CH0 || ch > PSH_SEND_CH0 + NUM_IA2PSH_IPC - 1 || in == NULL)
++               return -EINVAL;
++
++       if (!in || in->msg & CHANNEL_BUSY)
++               return -EINVAL;
++
++       pm_runtime_get_sync(ipcdev->dev);
++       down(&ipcdev->ch_lock[ch]);
++
++       in->msg |= CHANNEL_BUSY;
++       /* Check if channel is ready for IA sending command */
++
++       if (readl(PSH_REG_ADDR(ia2psh[ch].msg)) & CHANNEL_BUSY) {
++               ret = -EBUSY;
++               goto end;
++       }
++
++       writel(in->param, PSH_REG_ADDR(ia2psh[ch].param));
++       writel(in->msg, PSH_REG_ADDR(ia2psh[ch].msg));
++
++       /* Input timeout is zero, do not check channel status */
++       if (timeout == 0)
++               goto end;
++
++       /* Input timeout is nonzero, check channel status */
++       while (((status = readl(PSH_REG_ADDR(ia2psh[ch].msg))) & CHANNEL_BUSY) && timeout) {
++               usleep_range(100, 101);
++               timeout -= 100;
++       }
++
++       if (timeout <= 0) {
++               ret = -ETIMEDOUT;
++               dev_err(ipcdev->dev, "ia2psh channel %d is always busy!\n", ch);
++       } else if (out) {
++               out->param = readl(PSH_REG_ADDR(ia2psh[ch].param));
++               out->msg = status;
++       }
++
++end:
++       up(&ipcdev->ch_lock[ch]);
++       pm_runtime_put(ipcdev->dev);
++
++       return ret;
++}
++EXPORT_SYMBOL(intel_ia2psh_command);
++
++/**
++ * intel_psh_ipc_bind - bind a handler to a psh channel
++ *
++ * @ch: psh channel
++ * @handle: handle function called when IA received psh interrupt
++ * @data: data passed to handle
++ */
++int intel_psh_ipc_bind(int ch, psh_channel_handle_t handle, void *data)
++{
++       struct ipc_controller_t *ipcdev = ipc_ctrl;
++       unsigned long flags;
++
++       if (!ipcdev)
++               return -ENODEV;
++
++       if (!handle ||
++           ch < PSH_RECV_CH0 || ch > PSH_RECV_CH0 + NUM_PSH2IA_IPC - 1)
++               return -EINVAL;
++
++       mutex_lock(&ipcdev->psh_mutex);
++
++       down(&ipcdev->ch_lock[ch]);
++       if (PSH_CH_HANDLE(ch - PSH_RECV_CH0) != NULL) {
++               up(&ipcdev->ch_lock[ch]);
++               mutex_unlock(&ipcdev->psh_mutex);
++               return -EBUSY;
++       }
++
++       PSH_CH_DATA(ch - PSH_RECV_CH0) = data;
++       PSH_CH_HANDLE(ch - PSH_RECV_CH0) = handle;
++       up(&ipcdev->ch_lock[ch]);
++
++       pm_runtime_get_sync(ipcdev->dev);
++       spin_lock_irqsave(&ipcdev->lock, flags);
++       PSH_CH_FLAG(ch) |= FLAG_BIND;
++       writel(readl(PIMR_ADDR(1)) | (1 << (ch - PSH_RECV_CH0)), PIMR_ADDR(1));
++       spin_unlock_irqrestore(&ipcdev->lock, flags);
++       pm_runtime_put(ipcdev->dev);
++
++       mutex_unlock(&ipcdev->psh_mutex);
++       return 0;
++}
++EXPORT_SYMBOL(intel_psh_ipc_bind);
++
++/**
++ * intel_psh_ipc_unbind - unbind a handler to a psh channel
++ *
++ * @ch: psh channel
++ */
++void intel_psh_ipc_unbind(int ch)
++{
++       struct ipc_controller_t *ipcdev = ipc_ctrl;
++       unsigned long flags;
++
++       if (!ipcdev)
++               return;
++
++       if (ch < PSH_RECV_CH0 || ch > PSH_RECV_CH0 + NUM_PSH2IA_IPC - 1)
++               return;
++
++       if (!(PSH_CH_FLAG(ch) & FLAG_BIND))
++               return;
++
++       mutex_lock(&ipcdev->psh_mutex);
++
++       pm_runtime_get_sync(ipcdev->dev);
++       spin_lock_irqsave(&ipcdev->lock, flags);
++       PSH_CH_FLAG(ch) &= ~FLAG_BIND;
++       writel(readl(PIMR_ADDR(1)) & (~(1 << (ch - PSH_RECV_CH0))), PIMR_ADDR(1));
++       spin_unlock_irqrestore(&ipcdev->lock, flags);
++       pm_runtime_put(ipcdev->dev);
++
++       down(&ipcdev->ch_lock[ch]);
++       PSH_CH_HANDLE(ch - PSH_RECV_CH0) = NULL;
++       up(&ipcdev->ch_lock[ch]);
++
++       mutex_unlock(&ipcdev->psh_mutex);
++}
++EXPORT_SYMBOL(intel_psh_ipc_unbind);
++
++void intel_psh_ipc_disable_irq(void)
++{
++       struct ipc_controller_t *ipcdev = ipc_ctrl;
++
++       disable_irq(ipcdev->irq);
++}
++EXPORT_SYMBOL(intel_psh_ipc_disable_irq);
++
++void intel_psh_ipc_enable_irq(void)
++{
++       struct ipc_controller_t *ipcdev = ipc_ctrl;
++
++       enable_irq(ipcdev->irq);
++}
++EXPORT_SYMBOL(intel_psh_ipc_enable_irq);
++
++static void psh_recv_handle(struct ipc_controller_t *ipcdev, int i)
++{
++       int msg, param;
++
++       down(&ipcdev->ch_lock[i + PSH_RECV_CH0]);
++
++       msg = readl(PSH_REG_ADDR(psh2ia[i].msg)) & (~CHANNEL_BUSY);
++       param = readl(PSH_REG_ADDR(psh2ia[i].param));
++       /* write back to clear the busy bit */
++       writel(msg, PSH_REG_ADDR(psh2ia[i].msg));
++
++       if (PSH_CH_HANDLE(i) == NULL) {
++               dev_err(ipcdev->dev, "Ignore message from channel %d\n", i + PSH_RECV_CH0);
++               goto end;
++       }
++
++       PSH_CH_HANDLE(i)(msg, param, PSH_CH_DATA(i));
++end:
++       up(&ipcdev->ch_lock[i + PSH_RECV_CH0]);
++}
++
++static irqreturn_t psh_ipc_irq(int irq, void *data)
++{
++       struct ipc_controller_t *ipcdev = data;
++       unsigned int i;
++       u32 status;
++
++       pm_runtime_get_sync(ipcdev->dev);
++       status = readl(PSH_REG_ADDR(pisr));
++
++       for (i = 0; i < NUM_PSH2IA_IPC; i++) {
++               if (status & STATUS_PSH2IA(i))
++                       psh_recv_handle(ipcdev, i);
++       }
++
++       pm_runtime_put(ipcdev->dev);
++       return IRQ_HANDLED;
++}
++
++static void psh_regs_dump(struct ipc_controller_t *ipcdev)
++{
++       struct device *dev = ipcdev->dev;
++       unsigned int i;
++
++       pm_runtime_get_sync(dev);
++       dev_err(dev, "\n<-------------start------------>\n");
++
++       dev_err(dev, "csr:\t%#x\n", readl(PSH_REG_ADDR(csr)));
++       dev_err(dev, "pisr:\t%#x\n", readl(PSH_REG_ADDR(pisr)));
++
++       dev_err(dev, "pimr0:\t%#x\n", readl(PIMR_ADDR(0)));
++       dev_err(dev, "pimr1:\t%#x\n", readl(PIMR_ADDR(1)));
++       dev_err(dev, "pimr2:\t%#x\n", readl(PIMR_ADDR(2)));
++       dev_err(dev, "pimr3:\t%#x\n", readl(PIMR_ADDR(3)));
++
++       dev_err(dev, "pmctl:\t%#x\n", readl(PSH_REG_ADDR(pmctl)));
++       dev_err(dev, "pmstat:\t%#x\n", readl(PSH_REG_ADDR(pmstat)));
++       dev_err(dev, "scratchpad0:\t%#x\n", readl(PSH_REG_ADDR(scratchpad[0])));
++       dev_err(dev, "scratchpad1:\t%#x\n", readl(PSH_REG_ADDR(scratchpad[1])));
++
++       for (i = 0; i < NUM_IA2PSH_IPC; i++) {
++               dev_err(dev, "ia2psh[%d].msg:\t%#x\n", i, readl(PSH_REG_ADDR(ia2psh[i].msg)));
++               dev_err(dev, "ia2psh[%d].param:\t%#x\n", i, readl(PSH_REG_ADDR(ia2psh[i].param)));
++       }
++
++       dev_err(dev, "cry2psh.msg:\t%#x\n", readl(PSH_REG_ADDR(cry2psh.msg)));
++       dev_err(dev, "cry2psh.param:\t%#x\n", readl(PSH_REG_ADDR(cry2psh.param)));
++       dev_err(dev, "scu2psh.msg:\t%#x\n", readl(PSH_REG_ADDR(scu2psh.msg)));
++       dev_err(dev, "scu2psh.param:\t%#x\n", readl(PSH_REG_ADDR(scu2psh.param)));
++
++       for (i = 0; i < NUM_PSH2IA_IPC; i++) {
++               dev_err(dev, "psh2ia[%d].msg:\t%#x\n", i, readl(PSH_REG_ADDR(psh2ia[i].msg)));
++               dev_err(dev, "psh2ia[%d].param:\t%#x\n", i, readl(PSH_REG_ADDR(psh2ia[i].param)));
++       }
++
++       dev_err(dev, "psh2cry.msg:\t%#x\n", readl(PSH_REG_ADDR(psh2cry.msg)));
++       dev_err(dev, "psh2cry.param:\t%#x\n", readl(PSH_REG_ADDR(psh2cry.param)));
++
++       dev_err(dev, "\n<-------------end------------>\n");
++       pm_runtime_put(dev);
++}
++
++static struct psh_msg psh_dbg_msg;
++static int psh_ch;
++
++static ssize_t psh_msg_show(struct device *dev, struct device_attribute *attr,
++                           char *buf)
++{
++       return snprintf(buf, PAGE_SIZE,
++                       "Last ia2psh command with msg: %#x\nparam: %#x\n",
++                       psh_dbg_msg.msg, psh_dbg_msg.param);
++}
++
++static ssize_t psh_msg_store(struct device *dev, struct device_attribute *attr,
++                            const char *buf, size_t size)
++{
++       u32 msg, param;
++       int ret;
++
++       memset(&psh_dbg_msg, 0, sizeof(psh_dbg_msg));
++
++       ret = sscanf(buf, "%x %x", &msg, &param);
++       if (ret != 2) {
++               dev_err(dev, "Input two arguments as psh msg and param\n");
++               return -EINVAL;
++       }
++
++       psh_dbg_msg.msg = msg;
++       psh_dbg_msg.param = param;
++
++       return size;
++}
++
++static ssize_t psh_ch_show(struct device *dev, struct device_attribute *attr,
++                          char *buf)
++{
++       return snprintf(buf, PAGE_SIZE, "Last psh channel: %d\n", psh_ch);
++}
++
++static ssize_t psh_ch_store(struct device *dev, struct device_attribute *attr,
++                           const char *buf, size_t size)
++{
++       int ret;
++
++       ret = sscanf(buf, "%d", &psh_ch);
++       if (ret != 1) {
++               dev_err(dev, "Input one argument as psh channel\n");
++               return -EINVAL;
++       }
++
++       return size;
++}
++
++static ssize_t psh_send_cmd_store(struct device *dev, struct device_attribute *attr,
++                                 const char *buf, size_t size)
++{
++       struct ipc_controller_t *ipcdev = dev_get_drvdata(dev);
++       struct psh_msg out_msg;
++       int psh_dbg_err;
++
++       memset(&out_msg, 0, sizeof(out_msg));
++
++       psh_dbg_err = intel_ia2psh_command(&psh_dbg_msg, &out_msg, psh_ch, 3000000);
++       if (psh_dbg_err) {
++               dev_err(dev, "Send ia2psh command failed, err %d\n", psh_dbg_err);
++               psh_regs_dump(ipcdev);
++               return psh_dbg_err;
++       }
++
++       return size;
++}
++
++static DEVICE_ATTR(psh_msg, S_IRUGO | S_IWUSR, psh_msg_show, psh_msg_store);
++static DEVICE_ATTR(psh_ch, S_IRUGO | S_IWUSR, psh_ch_show, psh_ch_store);
++static DEVICE_ATTR(ia2psh_cmd, S_IWUSR, NULL, psh_send_cmd_store);
++
++static struct attribute *psh_attrs[] = {
++       &dev_attr_psh_msg.attr,
++       &dev_attr_psh_ch.attr,
++       &dev_attr_ia2psh_cmd.attr,
++       NULL,
++};
++
++static struct attribute_group psh_attr_group = {
++       .name = "psh_debug",
++       .attrs = psh_attrs,
++};
++
++static int intel_psh_debug_sysfs_create(struct device *dev)
++{
++       return sysfs_create_group(&dev->kobj, &psh_attr_group);
++}
++
++static void pmic_sysfs_remove(struct device *dev)
++{
++       sysfs_remove_group(&dev->kobj, &psh_attr_group);
++}
++
++static int __maybe_unused psh_ipc_suspend_noirq(struct device *dev)
++{
++       struct ipc_controller_t *ipcdev = dev_get_drvdata(dev);
++       unsigned int i;
++
++       for (i = 0; i < NUM_ALL_CH; i++) {
++               if (down_trylock(&ipcdev->ch_lock[i]))
++                       break;
++       }
++       if (i == NUM_ALL_CH) {
++               while (i--)
++                       up(&ipcdev->ch_lock[i]);
++               return -EBUSY;
++       }
++
++       return 0;
++}
++
++static int __maybe_unused psh_ipc_resume_noirq(struct device *dev)
++{
++       struct ipc_controller_t *ipcdev = dev_get_drvdata(dev);
++       unsigned int i;
++
++       for (i = 0; i < NUM_ALL_CH; i++)
++               up(&ipcdev->ch_lock[i]);
++
++       return 0;
++}
++
++static int __maybe_unused psh_ipc_runtime_suspend(struct device *dev)
++{
++       dev_dbg(dev, "runtime suspend called\n");
++       return 0;
++}
++
++static int __maybe_unused psh_ipc_runtime_resume(struct device *dev)
++{
++       dev_dbg(dev, "runtime resume called\n");
++       return 0;
++}
++
++static int psh_ipc_probe(struct pci_dev *pdev, const struct pci_device_id *id)
++{
++       struct ipc_controller_t *ipcdev;
++       unsigned int i;
++       int ret;
++
++       ret = pcim_enable_device(pdev);
++       if (ret)
++               return ret;
++
++       ret = pcim_iomap_regions(pdev, 1 << 0, pci_name(pdev));
++       if (ret)
++               return ret;
++
++       ipcdev = devm_kzalloc(&pdev->dev, sizeof(*ipcdev), GFP_KERNEL);
++       if (!ipcdev)
++               return -ENOMEM;
++
++       spin_lock_init(&ipcdev->lock);
++       mutex_init(&ipcdev->psh_mutex);
++
++       for (i = 0; i < NUM_ALL_CH; i++)
++               sema_init(&ipcdev->ch_lock[i], 1);
++
++       ipcdev->dev = &pdev->dev;
++       ipcdev->psh_regs = pcim_iomap_table(pdev)[0];
++       ipcdev->irq = pdev->irq;
++
++       ret = devm_request_threaded_irq(&pdev->dev, pdev->irq, NULL, psh_ipc_irq,
++                                       IRQF_ONESHOT, "intel_psh_ipc", ipcdev);
++       if (ret) {
++               dev_err(&pdev->dev, "Unable to register IRQ %d\n", pdev->irq);
++               return ret;
++       }
++
++       irq_set_irq_wake(pdev->irq, 1);
++
++       ipc_ctrl = ipcdev;
++       pci_set_drvdata(pdev, ipcdev);
++
++       intel_psh_debug_sysfs_create(&pdev->dev);
++
++       pm_runtime_put_noidle(&pdev->dev);
++       pm_runtime_allow(&pdev->dev);
++
++       return 0;
++}
++
++static void psh_ipc_remove(struct pci_dev *pdev)
++{
++       pm_runtime_forbid(&pdev->dev);
++       pm_runtime_get_noresume(&pdev->dev);
++
++       pmic_sysfs_remove(&pdev->dev);
++
++       ipc_ctrl = NULL;
++}
++
++static const struct dev_pm_ops psh_ipc_drv_pm_ops = {
++       SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(psh_ipc_suspend_noirq, psh_ipc_resume_noirq)
++       SET_RUNTIME_PM_OPS(psh_ipc_runtime_suspend, psh_ipc_runtime_resume, NULL)
++};
++
++static const struct pci_device_id psh_ipc_id_table[] = {
++       { PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x11a3) },
++       {}
++};
++MODULE_DEVICE_TABLE(pci, psh_ipc_id_table);
++
++static struct pci_driver psh_ipc_driver = {
++       .name = "intel_psh_ipc",
++       .driver = {
++               .pm = &psh_ipc_drv_pm_ops,
++       },
++       .id_table = psh_ipc_id_table,
++       .probe = psh_ipc_probe,
++       .remove = psh_ipc_remove,
++};
++
++module_pci_driver(psh_ipc_driver);
++
++MODULE_AUTHOR("bin.yang@intel.com");
++MODULE_DESCRIPTION("Intel PSH IPC driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/include/linux/platform_data/x86/intel_psh_ipc.h b/include/linux/platform_data/x86/intel_psh_ipc.h
+new file mode 100644
+index 000000000000..1d621656bf7b
+--- /dev/null
++++ b/include/linux/platform_data/x86/intel_psh_ipc.h
+@@ -0,0 +1,36 @@
++#ifndef _ASM_X86_INTEL_PSH_IPC_H_
++#define _ASM_X86_INTEL_PSH_IPC_H_
++
++#define CHANNEL_BUSY           (1 << 31)
++#define PSH_IPC_CONTINUE       (1 << 30)
++
++struct psh_msg {
++       u32 msg;
++       u32 param;
++};
++
++enum psh_channel {
++       PSH_SEND_CH0 = 0,
++       PSH_SEND_CH1,
++       PSH_SEND_CH2,
++       PSH_SEND_CH3,
++       NUM_IA2PSH_IPC,
++       PSH_RECV_CH0 = NUM_IA2PSH_IPC,
++       PSH_RECV_CH1,
++       PSH_RECV_CH2,
++       PSH_RECV_CH3,
++       PSH_RECV_END,
++       NUM_PSH2IA_IPC = PSH_RECV_END - PSH_RECV_CH0,
++       NUM_ALL_CH = NUM_IA2PSH_IPC + NUM_PSH2IA_IPC,
++};
++
++typedef void (*psh_channel_handle_t)(u32 msg, u32 param, void *data);
++int intel_ia2psh_command(struct psh_msg *in, struct psh_msg *out,
++                        int ch, int timeout);
++int intel_psh_ipc_bind(int ch, psh_channel_handle_t handle, void *data);
++void intel_psh_ipc_unbind(int ch);
++
++void intel_psh_ipc_disable_irq(void);
++void intel_psh_ipc_enable_irq(void);
++
++#endif
+diff --git a/init/calibrate.c b/init/calibrate.c
+index f3831272f113..edd3fcec4ce9 100644
+--- a/init/calibrate.c
++++ b/init/calibrate.c
+@@ -277,6 +277,11 @@ void calibrate_delay(void)
+ 	unsigned long lpj;
+ 	static bool printed;
+ 	int this_cpu = smp_processor_id();
++         printk("*************************************\n");
++         printk("*                                   *\n");
++         printk("*        HELLO YOCTO KERNEL         *\n");
++         printk("*                                   *\n");
++         printk("*************************************\n");
+ 
+ 	if (per_cpu(cpu_loops_per_jiffy, this_cpu)) {
+ 		lpj = per_cpu(cpu_loops_per_jiffy, this_cpu);

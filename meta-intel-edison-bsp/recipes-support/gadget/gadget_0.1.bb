@@ -27,3 +27,4 @@ do_install() {
 
 FILES_${PN} = "${sysconfdir}/udev/rules.d/gadget.rules"
 FILES_${PN} += "${bindir}/conf-gadget.sh"
+FILES_${PN} += "${systemd_unitdir}/system/usb-gadget@.service"

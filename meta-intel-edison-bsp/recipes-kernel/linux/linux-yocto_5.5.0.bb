@@ -6,23 +6,24 @@ LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://COPYING;md5=bbea815ee2795b2f4230826c0c6b8814"
 
 SRC_URI = "git://github.com/edison-fw/linux.git;protocol=https;branch=eds-acpi-${PV} \
-        file://ftdi_sio.cfg \
-        file://smsc95xx.cfg \
-        file://bt_more.cfg \
-        file://i2c_chardev.cfg \
-        file://configfs.cfg \
-        file://bridge.cfg \
-        file://leds.cfg \
-        file://bpf.cfg \
-        file://fbtft.cfg \
-        file://usb_gadget.cfg \
-        "
-
-# kernel patches
-SRC_URI_append = " file://0001-menuconfig-mconf-cfg-Allow-specification-of-ncurses-.patch"
-SRC_URI_append = " file://0001-serial-8250_dma-use-linear-buffer-for-transmit.patch"
-SRC_URI_append = " file://0001-hsu_dma_pci-disable-interrupt.patch"
-SRC_URI_append = " file://0001-serial-8250_dma-decrease-latency-on-RX.patch"
+           file://ftdi_sio.cfg \
+           file://smsc95xx.cfg \
+           file://bt_more.cfg \
+           file://i2c_chardev.cfg \
+           file://configfs.cfg \
+           file://bridge.cfg \
+           file://leds.cfg \
+           file://bpf.cfg \
+           file://fbtft.cfg \
+           file://usb_gadget.cfg \
+           file://intel_mcu.cfg \
+           file://sof.cfg \
+           file://0001-menuconfig-mconf-cfg-Allow-specification-of-ncurses-.patch \
+           file://0001-serial-8250_dma-use-linear-buffer-for-transmit.patch \
+           file://0001-hsu_dma_pci-disable-interrupt.patch \
+           file://0001-serial-8250_dma-decrease-latency-on-RX.patch \
+           file://0001-add-intel-mcu.patch \
+           "
 
 # usefull kernel debug options here
 #
